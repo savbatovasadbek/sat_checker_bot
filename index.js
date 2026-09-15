@@ -25,7 +25,7 @@ let config = { adminIds: [], stickers: {} };
 try {
   config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
 } catch (e) {
-  console.error("⚠️ config.json yuklanishida xato!");
+  console.error("⚠️ config.json o'qishda xatolik!");
 }
 
 let answerKeys = {};
@@ -95,10 +95,13 @@ function isAdmin(userId) {
   return ALL_ADMIN_IDS.includes(String(userId).trim());
 }
 
+// Harf va sonli javoblarni ajratib olish: "1. A", "1) 155", "1-D", "96", "A"
 function parseAnswerLine(line) {
   const cleaned = line.trim().toUpperCase();
   if (!cleaned) return null;
-  const match = cleaned.match(/^(?:\d+[\.\)\-:]?\s*)?([A-D])[\.\)]?$/);
+  const match = cleaned.match(
+    /^(?:\d+[\.\)\-:]?\s*)?([A-Z0-9\/\.\-]+)[\.\)]?$/
+  );
   return match ? match[1] : null;
 }
 
@@ -110,12 +113,6 @@ function mainMenu() {
   return new InlineKeyboardBuilder()
     .text("📘 Lesson 1", "lesson:lesson1")
     .text("📗 Lesson 2", "lesson:lesson2")
-    .row()
-    .text("📙 Lesson 3", "lesson:lesson3")
-    .text("📕 Lesson 4", "lesson:lesson4")
-    .row()
-    .text("📒 Lesson 5", "lesson:lesson5")
-    .text("📓 Lesson 6", "lesson:lesson6")
     .row()
     .text("👤 Profil / O'zgartirish", "profile")
     .text("📊 Natijalarim", "my_results")
@@ -162,9 +159,8 @@ bot.command("start", async (ctx) => {
 bot.command("help", async (ctx) => {
   await ctx.reply(
     `❓ TEST TOPSHIRISH BO'YICHA YORDAM\n\n` +
-      `1️⃣ Lessonni tanlang va 50 ta javobni yuboring.\n` +
-      `2️⃣ Qabul qilinadigan formatlar:\n` +
-      `   • A\n   • A)\n   • A.\n   • 1. A\n   • 1) A\n   • 1-A\n   • 1:A\n   • 1 A\n\n` +
+      `1️⃣ Lessonni tanlang va javoblaringizni har birini alohida qatorda yuboring.\n` +
+      `2️⃣ Variantli (A, B, C, D) va sonli (Grid-in) javoblar qabul qilinadi.\n\n` +
       `❌ Bekor qilish: /cancel`
   );
 });
@@ -213,7 +209,8 @@ bot.command("stats", async (ctx) => {
 
   const totalTests = results.length;
   const totalCorrect = results.reduce((sum, item) => sum + item.correct, 0);
-  const average = (totalCorrect / (totalTests * 50)) * 100;
+  const totalQuestions = results.reduce((sum, item) => sum + item.total, 0);
+  const average = (totalCorrect / totalQuestions) * 100;
 
   await ctx.reply(
     `📊 UMUMIY STATISTIKA\n\n` +
@@ -238,7 +235,7 @@ bot.command("students", async (ctx) => {
     message +=
       `${index + 1}. ${r.name} (${r.studentClass || "Noma'lum"})\n` +
       `📚 ${r.lesson}\n` +
-      `📊 ${r.correct}/50 (${r.percentage}%)\n\n`;
+      `📊 ${r.correct}/${r.total} (${r.percentage}%)\n\n`;
   });
 
   await ctx.reply(message);
@@ -282,9 +279,9 @@ bot.on("callback_query", async (ctx) => {
     const lessonId = data.split(":")[1];
     const lesson = answerKeys[lessonId];
 
-    if (!lesson) {
+    if (!lesson || !lesson.answers) {
       await ctx.answerCallbackQuery({
-        text: "❌ Bu test mavjud emas.",
+        text: "❌ Bu test javob kalitlari hali kiritilmagan.",
         show_alert: true,
       });
       return;
@@ -301,10 +298,13 @@ bot.on("callback_query", async (ctx) => {
       return;
     }
 
+    const expectedCount = lesson.answers.length;
+
     activeSessions.set(ctx.chat.id, {
       step: "testing",
       lessonId: lessonId,
       lessonTitle: lesson.title,
+      expectedCount: expectedCount,
     });
 
     await ctx.answerCallbackQuery();
@@ -312,8 +312,8 @@ bot.on("callback_query", async (ctx) => {
     await ctx.reply(
       `📚 ${lesson.title}\n` +
         `👤 O'quvchi: ${userData.name} (${userData.studentClass})\n\n` +
-        `📝 50 ta javobni yuboring.\n` +
-        `Qabul qilinadigan formatlar: A, A), 1. A, 1-A va h.k.\n\n` +
+        `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
+        `Har bir javobni alohida qatorda yuboring (Variant va Sonli javoblar kabul qilinadi).\n\n` +
         `❌ Bekor qilish: /cancel`
     );
     return;
@@ -343,10 +343,7 @@ bot.on("callback_query", async (ctx) => {
 
   if (data === "help") {
     await ctx.answerCallbackQuery();
-    await ctx.reply(
-      `❓ YORDAM\n\nTestni tanlang va 50 ta javobni yuboring.\n` +
-        `Format namunasi:\n1. A\n2. B\n3. C...`
-    );
+    await ctx.reply(`❓ YORDAM\n\nTestni tanlang va javoblaringizni yuboring.`);
     return;
   }
 });
@@ -399,31 +396,19 @@ bot.on("message", async (ctx) => {
   if (session.step === "testing") {
     const rawLines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
     const parsedAnswers = [];
-    const invalidLines = [];
 
-    rawLines.forEach((line, index) => {
+    rawLines.forEach((line) => {
       const parsed = parseAnswerLine(line);
-      if (parsed) {
-        parsedAnswers.push(parsed);
-      } else {
-        invalidLines.push(index + 1);
-      }
+      if (parsed) parsedAnswers.push(parsed);
     });
 
-    if (invalidLines.length > 0) {
-      await ctx.reply(
-        `⚠️ Noto'g'ri formatdagi javoblar aniqlandi (Qatorlar: ${invalidLines.join(
-          ", "
-        )}).\n` + `Faqat A, B, C, D variantlaridan foydalaning.`
-      );
-      return;
-    }
+    const expectedCount = session.expectedCount || 50;
 
-    if (parsedAnswers.length !== 50) {
+    if (parsedAnswers.length !== expectedCount) {
       await ctx.reply(
         `⚠️ Javoblar soni noto'g'ri.\n` +
           `Siz yubordingiz: ${parsedAnswers.length} ta.\n` +
-          `Talab qilinadi: 50 ta.`
+          `Talab qilinadi: ${expectedCount} ta.`
       );
       return;
     }
@@ -432,7 +417,7 @@ bot.on("message", async (ctx) => {
     const results = [];
     let correct = 0;
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < expectedCount; i++) {
       const studentAns = parsedAnswers[i];
       const correctAns = key[i];
       const isCorrect = studentAns === correctAns;
@@ -441,8 +426,8 @@ bot.on("message", async (ctx) => {
       results.push({ number: i + 1, correct: isCorrect });
     }
 
-    const wrong = 50 - correct;
-    const percentage = Math.round((correct / 50) * 100);
+    const wrong = expectedCount - correct;
+    const percentage = Math.round((correct / expectedCount) * 100);
     const currentUser = users[userId] || {};
 
     let resultMessage = `📊 ${session.lessonTitle} NATIJASI\n\n`;
@@ -454,7 +439,7 @@ bot.on("message", async (ctx) => {
     const correctSticker = config.stickers?.correct || "✅";
     const wrongSticker = config.stickers?.wrong || "❌";
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < expectedCount; i++) {
       resultMessage += `${String(i + 1).padStart(2, "0")}. ${
         results[i].correct ? correctSticker : wrongSticker
       }   `;
@@ -478,7 +463,7 @@ bot.on("message", async (ctx) => {
       lesson: session.lessonTitle,
       correct: correct,
       wrong: wrong,
-      total: 50,
+      total: expectedCount,
       percentage: percentage,
       studentAnswers: parsedAnswers,
       date: new Date().toISOString(),
@@ -489,7 +474,7 @@ bot.on("message", async (ctx) => {
 
     await ctx.reply(
       `🎉 Test yakunlandi!\n\n` +
-        `📊 Natijangiz: ${correct}/50 (${percentage}%)\n\n` +
+        `📊 Natijangiz: ${correct}/${expectedCount} (${percentage}%)\n\n` +
         `Keyingi harakatni tanlang:`,
       { reply_markup: postResultKeyboard(currentLessonId) }
     );
