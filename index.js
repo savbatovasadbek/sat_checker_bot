@@ -95,7 +95,6 @@ function isAdmin(userId) {
   return ALL_ADMIN_IDS.includes(String(userId).trim());
 }
 
-// Harf va sonli javoblarni ajratib olish: "1. A", "1) 155", "1-D", "96", "A"
 function parseAnswerLine(line) {
   const cleaned = line.trim().toUpperCase();
   if (!cleaned) return null;
@@ -149,21 +148,34 @@ bot.command("start", async (ctx) => {
     activeSessions.set(ctx.chat.id, { step: "registration_name" });
     await ctx.reply(
       `👋 Assalomu alaykum!\n\n` +
-        `🤖 Test tekshiruvchi botga xush kelibsiz.\n\n` +
+        `🤖 SAT Test tekshiruvchi botga xush kelibsiz.\n\n` +
         `Iltimos, Ism va Familiyangizni kiriting:\n` +
         `(Masalan: Asadbek Savbatov)`
     );
   }
 });
 
-bot.command("help", async (ctx) => {
+async function sendHelp(ctx) {
   await ctx.reply(
-    `❓ TEST TOPSHIRISH BO'YICHA YORDAM\n\n` +
-      `1️⃣ Lessonni tanlang va javoblaringizni har birini alohida qatorda yuboring.\n` +
-      `2️⃣ Variantli (A, B, C, D) va sonli (Grid-in) javoblar qabul qilinadi.\n\n` +
-      `❌ Bekor qilish: /cancel`
+    `📖 BOTDAN FOYDALANISH YO'RIQNOMASI\n\n` +
+      `1️⃣ **Testni tanlash:** Bosh menyudan kerakli darsni (masalan: Lesson 1) tanlang.\n\n` +
+      `2️⃣ **Javob yuborish:** Javoblaringizni botga bitta xabarda, har bir javobni alohida qatorda yuboring.\n\n` +
+      `📌 **Qabul qilinadigan formatlar:**\n` +
+      ` • Oddiy variantlar: A, B, C, D\n` +
+      ` • Tartib raqami bilan: 1. A, 2) B, 3-C\n` +
+      ` • Sonli (Grid-in) javoblar: 155, 7/3, -38, 210\n\n` +
+      `💡 **Misol:**\n` +
+      `1. A\n` +
+      `2. 155\n` +
+      `3. 7/3\n` +
+      `4. C\n\n` +
+      `⚠️ **Eslatma:** Javoblar soni testdagi savollar soniga mos bo'lishi shart.\n\n` +
+      `🔄 **Qayta topshirish:** Xohlagan testni istalgancha qayta topshirishingiz mumkin.\n\n` +
+      `❌ **Bekor qilish:** Harakatni bekor qilish uchun /cancel buyrug'ini yuboring.`
   );
-});
+}
+
+bot.command("help", sendHelp);
 
 bot.command("cancel", async (ctx) => {
   if (activeSessions.has(ctx.chat.id)) {
@@ -192,12 +204,13 @@ bot.command("admin", async (ctx) => {
 
   await ctx.reply(
     `👨‍🏫 ADMIN PANEL\n\n` +
-      `/stats — umumiy statistika\n` +
-      `/students — oxirgi natijalar\n` +
-      `/checkkeys — test kalitlari`
+      `/stats — Testlar bo'yicha alohida statistika\n` +
+      `/students — O'quvchilar natijalari guruhlangan holda\n` +
+      `/checkkeys — Test kalitlari va sonini ko'rish`
   );
 });
 
+// HAR BIR TEST UCHUN ALOHIDA STATISTIKA
 bot.command("stats", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
@@ -207,38 +220,76 @@ bot.command("stats", async (ctx) => {
     return;
   }
 
-  const totalTests = results.length;
-  const totalCorrect = results.reduce((sum, item) => sum + item.correct, 0);
-  const totalQuestions = results.reduce((sum, item) => sum + item.total, 0);
-  const average = (totalCorrect / totalQuestions) * 100;
+  const lessonStats = {};
 
-  await ctx.reply(
-    `📊 UMUMIY STATISTIKA\n\n` +
-      `📝 Topshirilgan testlar soni: ${totalTests}\n` +
-      `📈 O'rtacha o'zlashtirish: ${average.toFixed(1)}%`
-  );
+  results.forEach((r) => {
+    const lesson = r.lesson || r.lessonId;
+    if (!lessonStats[lesson]) {
+      lessonStats[lesson] = {
+        totalAttempts: 0,
+        totalCorrect: 0,
+        totalQuestions: 0,
+      };
+    }
+    lessonStats[lesson].totalAttempts += 1;
+    lessonStats[lesson].totalCorrect += r.correct;
+    lessonStats[lesson].totalQuestions += r.total;
+  });
+
+  let msg = "📊 TESTLAR BO'YICHA STATISTIKA\n\n";
+
+  Object.keys(lessonStats).forEach((lessonTitle) => {
+    const stat = lessonStats[lessonTitle];
+    const avg = ((stat.totalCorrect / stat.totalQuestions) * 100).toFixed(1);
+    msg +=
+      `📘 **${lessonTitle}**\n` +
+      ` • Topshirildi: ${stat.totalAttempts} marta\n` +
+      ` • O'rtacha natija: ${avg}%\n\n`;
+  });
+
+  await ctx.reply(msg);
 });
 
+// O'QUVCHILAR NOMI OSTIDA ISHCHAM GURUHLANGAN NATIJALAR
 bot.command("students", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
   const results = getResults();
-  const lastResults = results.slice(-10).reverse();
-
-  if (lastResults.length === 0) {
-    await ctx.reply("Hali natijalar mavjud emas.");
+  if (results.length === 0) {
+    await ctx.reply("👨‍🎓 Hali natijalar mavjud emas.");
     return;
   }
 
-  let message = "👨‍🎓 OXIRGI 10 TA NATIJA\n\n";
-  lastResults.forEach((r, index) => {
-    message +=
-      `${index + 1}. ${r.name} (${r.studentClass || "Noma'lum"})\n` +
-      `📚 ${r.lesson}\n` +
-      `📊 ${r.correct}/${r.total} (${r.percentage}%)\n\n`;
+  const studentMap = {};
+
+  results.forEach((r) => {
+    const key = r.telegramId;
+    if (!studentMap[key]) {
+      studentMap[key] = {
+        name: r.name || "Noma'lum",
+        studentClass: r.studentClass || "-",
+        tests: [],
+      };
+    }
+    studentMap[key].tests.push({
+      lesson: r.lesson,
+      correct: r.correct,
+      total: r.total,
+      percentage: r.percentage,
+    });
   });
 
-  await ctx.reply(message);
+  let msg = "👨‍🎓 O'QUVCHILAR NATIJALARI\n\n";
+
+  Object.values(studentMap).forEach((st, idx) => {
+    msg += `${idx + 1}. **${st.name}** (${st.studentClass})\n`;
+    st.tests.forEach((t) => {
+      msg += `   └ ${t.lesson}: ${t.correct}/${t.total} (${t.percentage}%)\n`;
+    });
+    msg += `\n`;
+  });
+
+  await ctx.reply(msg);
 });
 
 bot.command("checkkeys", async (ctx) => {
@@ -313,7 +364,7 @@ bot.on("callback_query", async (ctx) => {
       `📚 ${lesson.title}\n` +
         `👤 O'quvchi: ${userData.name} (${userData.studentClass})\n\n` +
         `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
-        `Har bir javobni alohida qatorda yuboring (Variant va Sonli javoblar kabul qilinadi).\n\n` +
+        `Har bir javobni alohida qatorda yuboring.\n\n` +
         `❌ Bekor qilish: /cancel`
     );
     return;
@@ -343,7 +394,7 @@ bot.on("callback_query", async (ctx) => {
 
   if (data === "help") {
     await ctx.answerCallbackQuery();
-    await ctx.reply(`❓ YORDAM\n\nTestni tanlang va javoblaringizni yuboring.`);
+    await sendHelp(ctx);
     return;
   }
 });
@@ -420,7 +471,14 @@ bot.on("message", async (ctx) => {
     for (let i = 0; i < expectedCount; i++) {
       const studentAns = parsedAnswers[i];
       const correctAns = key[i];
-      const isCorrect = studentAns === correctAns;
+
+      // BIR NECHA VARIANTLI JAVOBLARNI TEKSHIRISH
+      let isCorrect = false;
+      if (Array.isArray(correctAns)) {
+        isCorrect = correctAns.includes(studentAns);
+      } else {
+        isCorrect = studentAns === correctAns;
+      }
 
       if (isCorrect) correct++;
       results.push({ number: i + 1, correct: isCorrect });
