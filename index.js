@@ -1,25 +1,36 @@
 require("dotenv").config();
 const { Bot, InlineKeyboardBuilder } = require("node-telegram-bot-api");
+const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
 
 // ==========================================
-// FILE PATHS & DIRECTORIES
+// SUPABASE CLIENT SETUP
+// ==========================================
+
+const SUPABASE_URL = process.env.SUPABASE_URL
+  ? process.env.SUPABASE_URL.trim()
+  : "";
+const SUPABASE_KEY = process.env.SUPABASE_KEY
+  ? process.env.SUPABASE_KEY.trim()
+  : "";
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error(
+    "❌ ERROR: .env faylida SUPABASE_URL yoki SUPABASE_KEY topilmadi!"
+  );
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ==========================================
+// FILE PATHS & CONFIG LOAD
 // ==========================================
 
 const DATA_DIR = path.join(__dirname, "data");
 const CONFIG_PATH = path.join(__dirname, "config", "config.json");
 const KEYS_PATH = path.join(DATA_DIR, "answer_keys.json");
-const RESULTS_PATH = path.join(DATA_DIR, "results.json");
-const USERS_PATH = path.join(DATA_DIR, "users.json");
-
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(RESULTS_PATH)) fs.writeFileSync(RESULTS_PATH, "[]", "utf8");
-if (!fs.existsSync(USERS_PATH)) fs.writeFileSync(USERS_PATH, "{}", "utf8");
-
-// ==========================================
-// CONFIG & ENV LOAD
-// ==========================================
 
 let config = { adminIds: [], stickers: {} };
 try {
@@ -53,41 +64,70 @@ const bot = new Bot(BOT_TOKEN);
 
 console.log("=================================");
 console.log("🤖 TEST BOT ISHGA TUSHMOQDA...");
+console.log("⚡ Supabase bulutli bazasi ulangan!");
 console.log("👨‍🏫 Admin ID'lar:", ALL_ADMIN_IDS);
 console.log("=================================");
 
 const activeSessions = new Map();
 
 // ==========================================
-// STORAGE HELPERS
+// SUPABASE DATABASE HELPERS
 // ==========================================
 
-function getUsers() {
-  try {
-    return JSON.parse(fs.readFileSync(USERS_PATH, "utf8"));
-  } catch {
-    return {};
+async function getUser(userId) {
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", userId)
+    .single();
+
+  if (error && error.code !== "PGRST116") {
+    console.error("User o'qishda xato:", error.message);
   }
+  return data;
 }
 
-function saveUser(userId, userData) {
-  const users = getUsers();
-  users[userId] = userData;
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2), "utf8");
+async function saveUser(userId, name, studentClass) {
+  const { error } = await supabase.from("users").upsert({
+    telegram_id: userId,
+    name: name,
+    student_class: studentClass,
+  });
+
+  if (error) console.error("User saqlashda xato:", error.message);
 }
 
-function getResults() {
-  try {
-    return JSON.parse(fs.readFileSync(RESULTS_PATH, "utf8"));
-  } catch {
+async function getResults() {
+  const { data, error } = await supabase
+    .from("results")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Natijalarni olishda xato:", error.message);
     return [];
   }
+  return data || [];
 }
 
-function saveResult(result) {
-  const results = getResults();
-  results.push(result);
-  fs.writeFileSync(RESULTS_PATH, JSON.stringify(results, null, 2), "utf8");
+async function saveResult(resultData) {
+  const { error } = await supabase.from("results").insert([
+    {
+      telegram_id: resultData.telegramId,
+      username: resultData.username,
+      name: resultData.name,
+      student_class: resultData.studentClass,
+      lesson_id: resultData.lessonId,
+      lesson: resultData.lesson,
+      correct: resultData.correct,
+      wrong: resultData.wrong,
+      total: resultData.total,
+      percentage: resultData.percentage,
+      student_answers: resultData.studentAnswers,
+    },
+  ]);
+
+  if (error) console.error("Natijani saqlashda xato:", error.message);
 }
 
 function isAdmin(userId) {
@@ -104,9 +144,8 @@ function parseAnswerLine(line) {
   return match ? match[1] : null;
 }
 
-// Dynamic Lesson statistikasi yaratuvchi yordamchi funksiya
-function getSingleLessonStats(lessonIdKey) {
-  const results = getResults();
+async function getSingleLessonStats(lessonIdKey) {
+  const results = await getResults();
   const lessonObj = answerKeys[lessonIdKey];
 
   if (!lessonObj) {
@@ -115,9 +154,8 @@ function getSingleLessonStats(lessonIdKey) {
 
   const lessonTitle = lessonObj.title || lessonIdKey;
 
-  // Aynan ushbu lesson bo'yicha saralab olish
   const filteredResults = results.filter(
-    (r) => r.lessonId === lessonIdKey || r.lesson === lessonTitle
+    (r) => r.lesson_id === lessonIdKey || r.lesson === lessonTitle
   );
 
   let msg = `📘 **${lessonTitle}**\n`;
@@ -131,7 +169,7 @@ function getSingleLessonStats(lessonIdKey) {
   msg += `👨‍🎓 **O'quvchilar ro'yxati:**\n`;
   filteredResults.forEach((item, idx) => {
     msg += `${idx + 1}. ${item.name || "Noma'lum"} (${
-      item.studentClass || "-"
+      item.student_class || "-"
     })\n`;
     msg += `   └ ${item.correct}/${item.total} ball (${item.percentage}%)\n`;
   });
@@ -169,13 +207,12 @@ function postResultKeyboard(lessonId) {
 
 bot.command("start", async (ctx) => {
   const userId = ctx.from?.id;
-  const users = getUsers();
-  const existingUser = users[userId];
+  const existingUser = await getUser(userId);
 
-  if (existingUser && existingUser.name && existingUser.studentClass) {
+  if (existingUser && existingUser.name && existingUser.student_class) {
     activeSessions.delete(ctx.chat.id);
     await ctx.reply(
-      `👋 Xush kelibsiz, ${existingUser.name}! (${existingUser.studentClass})\n\n` +
+      `👋 Xush kelibsiz, ${existingUser.name}! (${existingUser.student_class})\n\n` +
         `📚 Kerakli test bo'limini tanlang:`,
       { reply_markup: mainMenu() }
     );
@@ -244,11 +281,10 @@ bot.command("admin", async (ctx) => {
   );
 });
 
-// UMUMIY STATISTIKA (/stats)
 bot.command("stats", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
-  const results = getResults();
+  const results = await getResults();
   if (results.length === 0) {
     await ctx.reply("📊 Hali natijalar mavjud emas.");
     return;
@@ -257,7 +293,7 @@ bot.command("stats", async (ctx) => {
   const lessonStats = {};
 
   results.forEach((r) => {
-    const lesson = r.lesson || r.lessonId;
+    const lesson = r.lesson || r.lesson_id;
     if (!lessonStats[lesson]) {
       lessonStats[lesson] = {
         totalAttempts: 0,
@@ -284,25 +320,22 @@ bot.command("stats", async (ctx) => {
   await ctx.reply(msg);
 });
 
-// LESSON 1 ALOHIDA STATISTIKASI (/stats1)
 bot.command("stats1", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
-  const message = getSingleLessonStats("lesson1");
+  const message = await getSingleLessonStats("lesson1");
   await ctx.reply(message);
 });
 
-// LESSON 2 ALOHIDA STATISTIKASI (/stats2)
 bot.command("stats2", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
-  const message = getSingleLessonStats("lesson2");
+  const message = await getSingleLessonStats("lesson2");
   await ctx.reply(message);
 });
 
-// O'QUVCHILAR KESIMIDAGI NATIJALAR (/students)
 bot.command("students", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
-  const results = getResults();
+  const results = await getResults();
   if (results.length === 0) {
     await ctx.reply("👨‍🎓 Hali natijalar mavjud emas.");
     return;
@@ -311,11 +344,11 @@ bot.command("students", async (ctx) => {
   const studentMap = {};
 
   results.forEach((r) => {
-    const key = r.telegramId;
+    const key = r.telegram_id;
     if (!studentMap[key]) {
       studentMap[key] = {
         name: r.name || "Noma'lum",
-        studentClass: r.studentClass || "-",
+        studentClass: r.student_class || "-",
         tests: [],
       };
     }
@@ -361,7 +394,6 @@ bot.command("checkkeys", async (ctx) => {
 bot.on("callback_query", async (ctx) => {
   const data = ctx.callbackQuery?.data;
   const userId = ctx.from?.id;
-  const users = getUsers();
 
   if (data === "main_menu") {
     await ctx.answerCallbackQuery();
@@ -388,8 +420,8 @@ bot.on("callback_query", async (ctx) => {
       return;
     }
 
-    const userData = users[userId];
-    if (!userData || !userData.name || !userData.studentClass) {
+    const userData = await getUser(userId);
+    if (!userData || !userData.name || !userData.student_class) {
       await ctx.answerCallbackQuery({
         text: "⚠️ Avval ro'yxatdan o'ting!",
         show_alert: true,
@@ -412,7 +444,7 @@ bot.on("callback_query", async (ctx) => {
 
     await ctx.reply(
       `📚 ${lesson.title}\n` +
-        `👤 O'quvchi: ${userData.name} (${userData.studentClass})\n\n` +
+        `👤 O'quvchi: ${userData.name} (${userData.student_class})\n\n` +
         `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
         `Har bir javobni alohida qatorda yuboring.\n\n` +
         `❌ Bekor qilish: /cancel`
@@ -422,18 +454,19 @@ bot.on("callback_query", async (ctx) => {
 
   if (data === "my_results") {
     await ctx.answerCallbackQuery();
-    const results = getResults()
-      .filter((r) => r.telegramId === userId)
+    const allResults = await getResults();
+    const userResults = allResults
+      .filter((r) => String(r.telegram_id) === String(userId))
       .slice(-10)
       .reverse();
 
-    if (results.length === 0) {
+    if (userResults.length === 0) {
       await ctx.reply("📊 Sizda hali saqlangan natijalar yo'q.");
       return;
     }
 
     let msg = "📊 SO'NGGI NATIJALARINGIZ\n\n";
-    results.forEach((r, index) => {
+    userResults.forEach((r, index) => {
       msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${
         r.percentage
       }%)\n`;
@@ -460,10 +493,10 @@ bot.on("message", async (ctx) => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id;
   const session = activeSessions.get(chatId);
-  const users = getUsers();
 
   if (!session) {
-    if (!users[userId]) {
+    const existingUser = await getUser(userId);
+    if (!existingUser) {
       await ctx.reply("📚 Avval /start bosing va ro'yxatdan o'ting.");
     } else {
       await ctx.reply("📚 Testni tanlang:", { reply_markup: mainMenu() });
@@ -472,22 +505,25 @@ bot.on("message", async (ctx) => {
   }
 
   if (session.step === "registration_name") {
-    saveUser(userId, { ...(users[userId] || {}), name: text.trim() });
-    activeSessions.set(chatId, { step: "registration_class" });
+    activeSessions.set(chatId, {
+      step: "registration_class",
+      tempName: text.trim(),
+    });
     await ctx.reply(`Rahmat! Endi sinfingizni kiriting (Masalan: 7-A):`);
     return;
   }
 
   if (session.step === "registration_class") {
-    const userObj = users[userId] || {};
-    userObj.studentClass = text.trim();
-    saveUser(userId, userObj);
+    const name = session.tempName;
+    const studentClass = text.trim();
 
+    await saveUser(userId, name, studentClass);
     activeSessions.delete(chatId);
+
     await ctx.reply(
       `✅ Ma'lumotlaringiz saqlandi!\n\n` +
-        `👤 Ism: ${userObj.name}\n` +
-        `🏫 Sinf: ${userObj.studentClass}\n\n` +
+        `👤 Ism: ${name}\n` +
+        `🏫 Sinf: ${studentClass}\n\n` +
         `📚 Kerakli testni tanlang:`,
       { reply_markup: mainMenu() }
     );
@@ -535,11 +571,11 @@ bot.on("message", async (ctx) => {
 
     const wrong = expectedCount - correct;
     const percentage = Math.round((correct / expectedCount) * 100);
-    const currentUser = users[userId] || {};
+    const currentUser = await getUser(userId);
 
     let resultMessage = `📊 ${session.lessonTitle} NATIJASI\n\n`;
-    resultMessage += `👤 ${currentUser.name || "O'quvchi"} (${
-      currentUser.studentClass || "-"
+    resultMessage += `👤 ${currentUser?.name || "O'quvchi"} (${
+      currentUser?.student_class || "-"
     })\n\n`;
     resultMessage += `━━━━━━━━━━━━━━━━━━\n`;
 
@@ -561,11 +597,11 @@ bot.on("message", async (ctx) => {
 
     await ctx.reply(resultMessage);
 
-    saveResult({
+    await saveResult({
       telegramId: userId,
       username: ctx.from?.username || null,
-      name: currentUser.name || "Noma'lum",
-      studentClass: currentUser.studentClass || "Noma'lum",
+      name: currentUser?.name || "Noma'lum",
+      studentClass: currentUser?.student_class || "Noma'lum",
       lessonId: session.lessonId,
       lesson: session.lessonTitle,
       correct: correct,
@@ -573,7 +609,6 @@ bot.on("message", async (ctx) => {
       total: expectedCount,
       percentage: percentage,
       studentAnswers: parsedAnswers,
-      date: new Date().toISOString(),
     });
 
     const currentLessonId = session.lessonId;
