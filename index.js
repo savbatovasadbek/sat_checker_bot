@@ -104,6 +104,41 @@ function parseAnswerLine(line) {
   return match ? match[1] : null;
 }
 
+// Dynamic Lesson statistikasi yaratuvchi yordamchi funksiya
+function getSingleLessonStats(lessonIdKey) {
+  const results = getResults();
+  const lessonObj = answerKeys[lessonIdKey];
+
+  if (!lessonObj) {
+    return `❌ Tizimda **${lessonIdKey}** bo'limi topilmadi.`;
+  }
+
+  const lessonTitle = lessonObj.title || lessonIdKey;
+
+  // Aynan ushbu lesson bo'yicha saralab olish
+  const filteredResults = results.filter(
+    (r) => r.lessonId === lessonIdKey || r.lesson === lessonTitle
+  );
+
+  let msg = `📘 **${lessonTitle}**\n`;
+  msg += ` • Topshirildi: ${filteredResults.length} marta\n\n`;
+
+  if (filteredResults.length === 0) {
+    msg += `ℹ️ Hali hech kim bu test topshirmagan.`;
+    return msg;
+  }
+
+  msg += `👨‍🎓 **O'quvchilar ro'yxati:**\n`;
+  filteredResults.forEach((item, idx) => {
+    msg += `${idx + 1}. ${item.name || "Noma'lum"} (${
+      item.studentClass || "-"
+    })\n`;
+    msg += `   └ ${item.correct}/${item.total} ball (${item.percentage}%)\n`;
+  });
+
+  return msg;
+}
+
 // ==========================================
 // KEYBOARDS
 // ==========================================
@@ -201,13 +236,15 @@ bot.command("admin", async (ctx) => {
 
   await ctx.reply(
     `👨‍🏫 ADMIN PANEL\n\n` +
-      `/stats — Har bir test bo'yicha o'quvchilar ballari\n` +
+      `/stats — Umumiy statistikalar (barchasi)\n` +
+      `/stats1 — Lesson 1 natijalari va o'quvchilar ro'yxati\n` +
+      `/stats2 — Lesson 2 natijalari va o'quvchilar ro'yxati\n` +
       `/students — O'quvchilar kesimidagi natijalar\n` +
       `/checkkeys — Test kalitlari va sonini ko'rish`
   );
 });
 
-// HAR BIR TESTDA O'QUVCHILAR NATIJALARI (LESSON KESIMIDA)
+// UMUMIY STATISTIKA (/stats)
 bot.command("stats", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
@@ -217,36 +254,51 @@ bot.command("stats", async (ctx) => {
     return;
   }
 
-  const lessonMap = {};
+  const lessonStats = {};
 
   results.forEach((r) => {
-    const lessonTitle = r.lesson || r.lessonId;
-    if (!lessonMap[lessonTitle]) {
-      lessonMap[lessonTitle] = [];
+    const lesson = r.lesson || r.lessonId;
+    if (!lessonStats[lesson]) {
+      lessonStats[lesson] = {
+        totalAttempts: 0,
+        totalCorrect: 0,
+        totalQuestions: 0,
+      };
     }
-    lessonMap[lessonTitle].push({
-      name: r.name || "Noma'lum",
-      studentClass: r.studentClass || "-",
-      correct: r.correct,
-      total: r.total,
-      percentage: r.percentage,
-    });
+    lessonStats[lesson].totalAttempts += 1;
+    lessonStats[lesson].totalCorrect += r.correct;
+    lessonStats[lesson].totalQuestions += r.total;
   });
 
-  let msg = "📊 TESTLAR BO'YICHA O'QUVCHILAR NATIJALARI\n\n";
+  let msg = "📊 TESTLAR BO'YICHA STATISTIKA\n\n";
 
-  Object.keys(lessonMap).forEach((lessonTitle) => {
-    msg += `📘 **${lessonTitle}**\n`;
-    lessonMap[lessonTitle].forEach((item) => {
-      msg += ` • ${item.name} (${item.studentClass})\n   └ ${item.correct} ball (${item.percentage}%)\n`;
-    });
-    msg += `\n`;
+  Object.keys(lessonStats).forEach((lessonTitle) => {
+    const stat = lessonStats[lessonTitle];
+    const avg = ((stat.totalCorrect / stat.totalQuestions) * 100).toFixed(1);
+    msg +=
+      `📘 **${lessonTitle}**\n` +
+      ` • Topshirildi: ${stat.totalAttempts} marta\n` +
+      ` • O'rtacha natija: ${avg}%\n\n`;
   });
 
   await ctx.reply(msg);
 });
 
-// O'QUVCHILAR KESIMIDAGI NATIJALAR
+// LESSON 1 ALOHIDA STATISTIKASI (/stats1)
+bot.command("stats1", async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return;
+  const message = getSingleLessonStats("lesson1");
+  await ctx.reply(message);
+});
+
+// LESSON 2 ALOHIDA STATISTIKASI (/stats2)
+bot.command("stats2", async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return;
+  const message = getSingleLessonStats("lesson2");
+  await ctx.reply(message);
+});
+
+// O'QUVCHILAR KESIMIDAGI NATIJALAR (/students)
 bot.command("students", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
 
