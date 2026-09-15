@@ -325,10 +325,16 @@ bot.command("excel", async (ctx) => {
   const filePath = path.join(EXPORTS_DIR, `Natijalar_${Date.now()}.xlsx`);
   await workbook.xlsx.writeFile(filePath);
 
-  await ctx.replyWithDocument({
-    source: filePath,
-    filename: "Test_Natijalari.xlsx",
-  });
+  await bot.sendDocument(
+    ctx.chat.id,
+    filePath,
+    {},
+    {
+      filename: "Test_Natijalari.xlsx",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+  );
 });
 
 // ==========================================
