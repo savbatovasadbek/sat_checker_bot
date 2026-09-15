@@ -1,0 +1,10 @@
+{
+  "adminIds": [1255001197],
+  "stickers": {
+    "correct": "✅",
+    "wrong": "❌",
+    "perfect": "💯",
+    "success": "🏆",
+    "warning": "⚠️"
+  }
+}

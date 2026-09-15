@@ -1,0 +1,18 @@
+{
+  "name": "sat-checker-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "Savbatov Asadbek",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "node-telegram-bot-api": "^2.1.0"
+  }
+}
