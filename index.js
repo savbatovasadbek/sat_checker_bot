@@ -2,21 +2,18 @@ require("dotenv").config();
 const { Bot, InlineKeyboardBuilder } = require("node-telegram-bot-api");
 const fs = require("fs");
 const path = require("path");
-const ExcelJS = require("exceljs");
 
 // ==========================================
 // FILE PATHS & DIRECTORIES
 // ==========================================
 
 const DATA_DIR = path.join(__dirname, "data");
-const EXPORTS_DIR = path.join(__dirname, "exports");
 const CONFIG_PATH = path.join(__dirname, "config", "config.json");
 const KEYS_PATH = path.join(DATA_DIR, "answer_keys.json");
 const RESULTS_PATH = path.join(DATA_DIR, "results.json");
 const USERS_PATH = path.join(DATA_DIR, "users.json");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(EXPORTS_DIR)) fs.mkdirSync(EXPORTS_DIR, { recursive: true });
 if (!fs.existsSync(RESULTS_PATH)) fs.writeFileSync(RESULTS_PATH, "[]", "utf8");
 if (!fs.existsSync(USERS_PATH)) fs.writeFileSync(USERS_PATH, "{}", "utf8");
 
@@ -40,7 +37,6 @@ try {
 
 const BOT_TOKEN = process.env.BOT_TOKEN ? process.env.BOT_TOKEN.trim() : "";
 
-// Admin ID'larni ham .env'dan, ham config.json'dan jamlaymiz
 const envAdminIds = process.env.ADMIN_IDS
   ? process.env.ADMIN_IDS.split(",").map((id) => String(id.trim()))
   : [];
@@ -57,7 +53,7 @@ const bot = new Bot(BOT_TOKEN);
 
 console.log("=================================");
 console.log("🤖 TEST BOT ISHGA TUSHMOQDA...");
-console.log("👨‍🏫 Baza bo'yicha Admin ID'lar:", ALL_ADMIN_IDS);
+console.log("👨‍🏫 Admin ID'lar:", ALL_ADMIN_IDS);
 console.log("=================================");
 
 const activeSessions = new Map();
@@ -137,7 +133,7 @@ function postResultKeyboard(lessonId) {
 }
 
 // ==========================================
-// START & REGISTRATION
+// COMMANDS
 // ==========================================
 
 bot.command("start", async (ctx) => {
@@ -190,7 +186,6 @@ bot.command("cancel", async (ctx) => {
 
 bot.command("admin", async (ctx) => {
   const userId = ctx.from?.id;
-  console.log(`[LOG] /admin buyrug'i keldi. User ID: ${userId}`);
 
   if (!isAdmin(userId)) {
     await ctx.reply(
@@ -203,16 +198,12 @@ bot.command("admin", async (ctx) => {
     `👨‍🏫 ADMIN PANEL\n\n` +
       `/stats — umumiy statistika\n` +
       `/students — oxirgi natijalar\n` +
-      `/excel — Excel yuklab olish\n` +
       `/checkkeys — test kalitlari`
   );
 });
 
 bot.command("stats", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) {
-    await ctx.reply(`⛔ Sizda admin huquqi yo'q. Sizning ID: ${ctx.from?.id}`);
-    return;
-  }
+  if (!isAdmin(ctx.from?.id)) return;
 
   const results = getResults();
   if (results.length === 0) {
@@ -232,10 +223,7 @@ bot.command("stats", async (ctx) => {
 });
 
 bot.command("students", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) {
-    await ctx.reply(`⛔ Sizda admin huquqi yo'q.`);
-    return;
-  }
+  if (!isAdmin(ctx.from?.id)) return;
 
   const results = getResults();
   const lastResults = results.slice(-10).reverse();
@@ -266,75 +254,6 @@ bot.command("checkkeys", async (ctx) => {
     } ta kalit)\n`;
   });
   await ctx.reply(msg);
-});
-
-bot.command("excel", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) return;
-
-  const results = getResults();
-  if (results.length === 0) {
-    await ctx.reply("📊 Eksport qilish uchun natijalar yo'q.");
-    return;
-  }
-
-  await ctx.reply("⏳ Excel fayli shakllantirilmoqda...");
-
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Natijalar");
-
-  const columns = [
-    { header: "№", key: "index", width: 5 },
-    { header: "Ism Familiya", key: "name", width: 25 },
-    { header: "Sinf", key: "studentClass", width: 10 },
-    { header: "Telegram ID", key: "telegramId", width: 15 },
-    { header: "Lesson", key: "lesson", width: 15 },
-    { header: "To'g'ri", key: "correct", width: 10 },
-    { header: "Noto'g'ri", key: "wrong", width: 10 },
-    { header: "Foiz (%)", key: "percentage", width: 10 },
-    { header: "Sana", key: "date", width: 20 },
-  ];
-
-  for (let i = 1; i <= 50; i++) {
-    columns.push({ header: `S${i}`, key: `q_${i}`, width: 5 });
-  }
-
-  worksheet.columns = columns;
-
-  results.forEach((res, index) => {
-    const rowData = {
-      index: index + 1,
-      name: res.name || "-",
-      studentClass: res.studentClass || "-",
-      telegramId: res.telegramId,
-      lesson: res.lesson,
-      correct: res.correct,
-      wrong: res.wrong,
-      percentage: `${res.percentage}%`,
-      date: res.date ? new Date(res.date).toLocaleString("uz-UZ") : "-",
-    };
-
-    if (res.studentAnswers && Array.isArray(res.studentAnswers)) {
-      res.studentAnswers.forEach((ans, qIndex) => {
-        rowData[`q_${qIndex + 1}`] = ans;
-      });
-    }
-
-    worksheet.addRow(rowData);
-  });
-
-  const filePath = path.join(EXPORTS_DIR, `Natijalar_${Date.now()}.xlsx`);
-  await workbook.xlsx.writeFile(filePath);
-
-  await bot.sendDocument(
-    ctx.chat.id,
-    filePath,
-    {},
-    {
-      filename: "Test_Natijalari.xlsx",
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }
-  );
 });
 
 // ==========================================
