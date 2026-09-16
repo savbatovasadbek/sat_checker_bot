@@ -613,3 +613,35 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`🚀 Web Server ${PORT}-portda ishlamoqda.`);
 });
+
+// ==========================================
+// RENDER SLEEP PREVENTER (24/7 KEEP-ALIVE)
+// ==========================================
+
+const http = require("http");
+const https = require("https");
+
+const PORT = process.env.PORT || 10000;
+
+// Render uchun web-server
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("SAT Checker Bot is active 24/7!\n");
+});
+
+server.listen(PORT, () => {
+  console.log(`🚀 Web server ${PORT}-portda ishga tushdi.`);
+});
+
+// Har 10 daqiqada Render URL'iga so'rov yuborib, o'chib qolishining oldini olish
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+
+if (RENDER_EXTERNAL_URL) {
+  setInterval(() => {
+    https.get(RENDER_EXTERNAL_URL, (res) => {
+      console.log(`⏰ Keep-alive ping yuborildi: Status ${res.statusCode}`);
+    }).on("error", (err) => {
+      console.error("⚠️ Keep-alive pingda xato:", err.message);
+    });
+  }, 10 * 60 * 1000); // 10 daqiqa
+}
