@@ -618,10 +618,10 @@ http.createServer((req, res) => {
 // RENDER SLEEP PREVENTER (24/7 KEEP-ALIVE)
 // ==========================================
 
-const http = require("http");
+// const http = require("http");
 const https = require("https");
 
-const PORT = process.env.PORT || 10000;
+// const PORT = process.env.PORT || 10000;
 
 // Render uchun web-server
 const server = http.createServer((req, res) => {
