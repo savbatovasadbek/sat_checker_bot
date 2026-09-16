@@ -3,16 +3,24 @@ const { Bot, InlineKeyboardBuilder } = require("node-telegram-bot-api");
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
+const http = require("http");
+const https = require("https");
 
 // ==========================================
 // SUPABASE CLIENT SETUP
 // ==========================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL ? process.env.SUPABASE_URL.trim() : "";
-const SUPABASE_KEY = process.env.SUPABASE_KEY ? process.env.SUPABASE_KEY.trim() : "";
+const SUPABASE_URL = process.env.SUPABASE_URL
+  ? process.env.SUPABASE_URL.trim()
+  : "";
+const SUPABASE_KEY = process.env.SUPABASE_KEY
+  ? process.env.SUPABASE_KEY.trim()
+  : "";
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("❌ ERROR: .env faylida SUPABASE_URL yoki SUPABASE_KEY topilmadi!");
+  console.error(
+    "❌ ERROR: .env faylida SUPABASE_URL yoki SUPABASE_KEY topilmadi!"
+  );
   process.exit(1);
 }
 
@@ -65,7 +73,7 @@ console.log("=================================");
 const activeSessions = new Map();
 
 // ==========================================
-// SUPABASE DATABASE HELPERS (TUZA TILGAN)
+// SUPABASE DATABASE HELPERS
 // ==========================================
 
 async function getUser(userId) {
@@ -132,7 +140,9 @@ function isAdmin(userId) {
 function parseAnswerLine(line) {
   const cleaned = line.trim().toUpperCase();
   if (!cleaned) return null;
-  const match = cleaned.match(/^(?:\d+[\.\)\-:]?\s*)?([A-Z0-9\/\.\-]+)[\.\)]?$/);
+  const match = cleaned.match(
+    /^(?:\d+[\.\)\-:]?\s*)?([A-Z0-9\/\.\-]+)[\.\)]?$/
+  );
   return match ? match[1] : null;
 }
 
@@ -145,7 +155,7 @@ async function getSingleLessonStats(lessonIdKey) {
   }
 
   const lessonTitle = lessonObj.title || lessonIdKey;
-  
+
   const filteredResults = results.filter(
     (r) => r.lesson_id === lessonIdKey || r.lesson === lessonTitle
   );
@@ -160,7 +170,9 @@ async function getSingleLessonStats(lessonIdKey) {
 
   msg += `👨‍🎓 **O'quvchilar ro'yxati:**\n`;
   filteredResults.forEach((item, idx) => {
-    msg += `${idx + 1}. ${item.name || "Noma'lum"} (${item.student_class || "-"})\n`;
+    msg += `${idx + 1}. ${item.name || "Noma'lum"} (${
+      item.student_class || "-"
+    })\n`;
     msg += `   └ ${item.correct}/${item.total} ball (${item.percentage}%)\n`;
   });
 
@@ -239,7 +251,9 @@ bot.command("help", sendHelp);
 bot.command("cancel", async (ctx) => {
   if (activeSessions.has(ctx.chat.id)) {
     activeSessions.delete(ctx.chat.id);
-    await ctx.reply("❌ Amal bekor qilindi. Bosh menu:", { reply_markup: mainMenu() });
+    await ctx.reply("❌ Amal bekor qilindi. Bosh menu:", {
+      reply_markup: mainMenu(),
+    });
   } else {
     await ctx.reply("ℹ️ Hozirda faol test seansi yo'q.");
   }
@@ -253,7 +267,9 @@ bot.command("admin", async (ctx) => {
   const userId = ctx.from?.id;
 
   if (!isAdmin(userId)) {
-    await ctx.reply(`⛔ Sizda admin huquqi yo'q.\nSizning Telegram ID: ${userId}`);
+    await ctx.reply(
+      `⛔ Sizda admin huquqi yo'q.\nSizning Telegram ID: ${userId}`
+    );
     return;
   }
 
@@ -281,7 +297,11 @@ bot.command("stats", async (ctx) => {
   results.forEach((r) => {
     const lesson = r.lesson || r.lesson_id;
     if (!lessonStats[lesson]) {
-      lessonStats[lesson] = { totalAttempts: 0, totalCorrect: 0, totalQuestions: 0 };
+      lessonStats[lesson] = {
+        totalAttempts: 0,
+        totalCorrect: 0,
+        totalQuestions: 0,
+      };
     }
     lessonStats[lesson].totalAttempts += 1;
     lessonStats[lesson].totalCorrect += r.correct;
@@ -362,7 +382,9 @@ bot.command("checkkeys", async (ctx) => {
   let msg = "🔍 MAVJUD TEST KALITLARI:\n\n";
   Object.keys(answerKeys).forEach((key) => {
     const lesson = answerKeys[key];
-    msg += `• ${key}: ${lesson.title} (${lesson.answers?.length || 0} ta kalit)\n`;
+    msg += `• ${key}: ${lesson.title} (${
+      lesson.answers?.length || 0
+    } ta kalit)\n`;
   });
   await ctx.reply(msg);
 });
@@ -436,7 +458,10 @@ bot.on("callback_query", async (ctx) => {
   if (data === "my_results") {
     await ctx.answerCallbackQuery();
     const allResults = await getResults();
-    const userResults = allResults.filter((r) => String(r.telegram_id) === String(userId)).slice(-10).reverse();
+    const userResults = allResults
+      .filter((r) => String(r.telegram_id) === String(userId))
+      .slice(-10)
+      .reverse();
 
     if (userResults.length === 0) {
       await ctx.reply("📊 Sizda hali saqlangan natijalar yo'q.");
@@ -445,7 +470,9 @@ bot.on("callback_query", async (ctx) => {
 
     let msg = "📊 SO'NGGI NATIJALARINGIZ\n\n";
     userResults.forEach((r, index) => {
-      msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${r.percentage}%)\n`;
+      msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${
+        r.percentage
+      }%)\n`;
     });
     await ctx.reply(msg);
     return;
@@ -474,7 +501,9 @@ bot.on("message", async (ctx) => {
     const existingUser = await getUser(userId);
     if (!existingUser) {
       activeSessions.set(chatId, { step: "registration_name" });
-      await ctx.reply("👋 Assalomu alaykum! Iltimos, Ism va Familiyangizni kiriting:");
+      await ctx.reply(
+        "👋 Assalomu alaykum! Iltimos, Ism va Familiyangizni kiriting:"
+      );
     } else {
       await ctx.reply("📚 Testni tanlang:", { reply_markup: mainMenu() });
     }
@@ -482,7 +511,10 @@ bot.on("message", async (ctx) => {
   }
 
   if (session.step === "registration_name") {
-    activeSessions.set(chatId, { step: "registration_class", tempName: text.trim() });
+    activeSessions.set(chatId, {
+      step: "registration_class",
+      tempName: text.trim(),
+    });
     await ctx.reply(`Rahmat! Endi sinfingizni kiriting (Masalan: 7-A):`);
     return;
   }
@@ -548,14 +580,18 @@ bot.on("message", async (ctx) => {
     const currentUser = await getUser(userId);
 
     let resultMessage = `📊 ${session.lessonTitle} NATIJASI\n\n`;
-    resultMessage += `👤 ${currentUser?.name || "O'quvchi"} (${currentUser?.student_class || "-"})\n\n`;
+    resultMessage += `👤 ${currentUser?.name || "O'quvchi"} (${
+      currentUser?.student_class || "-"
+    })\n\n`;
     resultMessage += `━━━━━━━━━━━━━━━━━━\n`;
 
     const correctSticker = config.stickers?.correct || "✅";
     const wrongSticker = config.stickers?.wrong || "❌";
 
     for (let i = 0; i < expectedCount; i++) {
-      resultMessage += `${String(i + 1).padStart(2, "0")}. ${results[i].correct ? correctSticker : wrongSticker}   `;
+      resultMessage += `${String(i + 1).padStart(2, "0")}. ${
+        results[i].correct ? correctSticker : wrongSticker
+      }   `;
       if ((i + 1) % 5 === 0) resultMessage += "\n";
     }
 
@@ -599,49 +635,36 @@ bot.on("message", async (ctx) => {
 
 bot.catch((err) => console.error("❌ BOT ERROR:", err));
 
-bot.startPolling()
+bot
+  .startPolling()
   .then(() => console.log("✅ Bot muvaffaqiyatli ishga tushdi!"))
   .catch((err) => console.error("❌ Polling xatosi:", err));
 
-// Render uchun kichik soxta HTTP server (Port scan xatosini tuzatish)
-const http = require("http");
+// ==========================================
+// RENDER WEB SERVER & KEEP-ALIVE PING (SINGLE INSTANCE)
+// ==========================================
+
 const PORT = process.env.PORT || 10000;
 
-http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("SAT Bot is running active 24/7!\n");
-}).listen(PORT, () => {
-  console.log(`🚀 Web Server ${PORT}-portda ishlamoqda.`);
-});
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("SAT Bot is running active 24/7!\n");
+  })
+  .listen(PORT, () => {
+    console.log(`🚀 Web Server ${PORT}-portda ishlamoqda.`);
+  });
 
-// ==========================================
-// RENDER SLEEP PREVENTER (24/7 KEEP-ALIVE)
-// ==========================================
-
-// const http = require("http");
-const https = require("https");
-
-// const PORT = process.env.PORT || 10000;
-
-// Render uchun web-server
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("SAT Checker Bot is active 24/7!\n");
-});
-
-server.listen(PORT, () => {
-  console.log(`🚀 Web server ${PORT}-portda ishga tushdi.`);
-});
-
-// Har 10 daqiqada Render URL'iga so'rov yuborib, o'chib qolishining oldini olish
 const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
 
 if (RENDER_EXTERNAL_URL) {
   setInterval(() => {
-    https.get(RENDER_EXTERNAL_URL, (res) => {
-      console.log(`⏰ Keep-alive ping yuborildi: Status ${res.statusCode}`);
-    }).on("error", (err) => {
-      console.error("⚠️ Keep-alive pingda xato:", err.message);
-    });
-  }, 10 * 60 * 1000); // 10 daqiqa
+    https
+      .get(RENDER_EXTERNAL_URL, (res) => {
+        console.log(`⏰ Keep-alive ping yuborildi: Status ${res.statusCode}`);
+      })
+      .on("error", (err) => {
+        console.error("⚠️ Keep-alive pingda xato:", err.message);
+      });
+  }, 10 * 60 * 1000); // Har 10 daqiqada 1 marta ping
 }
