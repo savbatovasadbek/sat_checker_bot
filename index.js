@@ -602,3 +602,14 @@ bot.catch((err) => console.error("❌ BOT ERROR:", err));
 bot.startPolling()
   .then(() => console.log("✅ Bot muvaffaqiyatli ishga tushdi!"))
   .catch((err) => console.error("❌ Polling xatosi:", err));
+
+// Render uchun kichik soxta HTTP server (Port scan xatosini tuzatish)
+const http = require("http");
+const PORT = process.env.PORT || 10000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("SAT Bot is running active 24/7!\n");
+}).listen(PORT, () => {
+  console.log(`🚀 Web Server ${PORT}-portda ishlamoqda.`);
+});
