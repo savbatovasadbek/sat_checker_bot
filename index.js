@@ -73,6 +73,23 @@ console.log("=================================");
 const activeSessions = new Map();
 
 // ==========================================
+// ANTI-SPAM / RATE LIMITER SYSTEM (QOTISHGA QARSHI HIMOYA)
+// ==========================================
+
+const userLastAction = new Map();
+const COOLDOWN_MS = 1000; // 1 soniya oralig'ida so'rov yuborish mumkin
+
+function isSpamming(userId) {
+  const now = Date.now();
+  const lastTime = userLastAction.get(userId) || 0;
+  if (now - lastTime < COOLDOWN_MS) {
+    return true;
+  }
+  userLastAction.set(userId, now);
+  return false;
+}
+
+// ==========================================
 // TELEGRAM BOT MENU COMMANDS REGISTRATION
 // ==========================================
 
@@ -166,27 +183,27 @@ function parseAnswerLine(line) {
 
 async function getSingleLessonStats(lessonIdKey) {
   const results = await getResults();
+
+  try {
+    answerKeys = JSON.parse(fs.readFileSync(KEYS_PATH, "utf8"));
+  } catch (e) {}
+
   const lessonObj = answerKeys[lessonIdKey];
-
-  if (!lessonObj) {
-    return `❌ Tizimda **${lessonIdKey}** bo'limi topilmadi.`;
-  }
-
-  const lessonTitle = lessonObj.title || lessonIdKey;
+  const lessonTitle = lessonObj?.title || lessonIdKey.toUpperCase();
 
   const filteredResults = results.filter(
     (r) => r.lesson_id === lessonIdKey || r.lesson === lessonTitle
   );
 
-  let msg = `📘 **${lessonTitle}**\n`;
+  let msg = `📘 ${lessonTitle}\n`;
   msg += ` • Topshirildi: ${filteredResults.length} marta\n\n`;
 
   if (filteredResults.length === 0) {
-    msg += `ℹ️ Hali hech kim bu test topshirmagan.`;
+    msg += `ℹ️ Hali hech kim bu testni topshirmagan.`;
     return msg;
   }
 
-  msg += `👨‍🎓 **O'quvchilar ro'yxati:**\n`;
+  msg += `👨‍🎓 O'quvchilar ro'yxati:\n`;
   filteredResults.forEach((item, idx) => {
     msg += `${idx + 1}. ${item.name || "Noma'lum"} (${
       item.student_class || "-"
@@ -198,7 +215,7 @@ async function getSingleLessonStats(lessonIdKey) {
 }
 
 // ==========================================
-// KEYBOARDS (LESSON 1 - 12)
+// KEYBOARDS
 // ==========================================
 
 function mainMenu() {
@@ -257,6 +274,25 @@ function mainReplyKeyboard() {
   };
 }
 
+function adminReplyKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "📊 Stats 1" }, { text: "📊 Stats 2" }, { text: "📊 Stats 3" }],
+      [{ text: "📊 Stats 4" }, { text: "📊 Stats 5" }, { text: "📊 Stats 6" }],
+      [{ text: "📊 Stats 7" }, { text: "📊 Stats 8" }, { text: "📊 Stats 9" }],
+      [
+        { text: "📊 Stats 10" },
+        { text: "📊 Stats 11" },
+        { text: "📊 Stats 12" },
+      ],
+      [{ text: "📈 Umumiy Stats" }, { text: "👨‍🎓 O'quvchilar" }],
+      [{ text: "🏠 Asosiy Menyu" }],
+    ],
+    resize_keyboard: true,
+    persistent: true,
+  };
+}
+
 function postResultKeyboard(lessonId) {
   return new InlineKeyboardBuilder()
     .text("🔄 Shu testni qayta ishlash", `lesson:${lessonId}`)
@@ -272,7 +308,6 @@ function postResultKeyboard(lessonId) {
 async function startLessonProcess(ctx, lessonId) {
   const userId = ctx.from?.id;
 
-  // Faylni doimiy yangi holatda o'qish (kalitlar o'zgarganda botni qayta yoqmaslik uchun)
   try {
     answerKeys = JSON.parse(fs.readFileSync(KEYS_PATH, "utf8"));
   } catch (err) {
@@ -283,7 +318,7 @@ async function startLessonProcess(ctx, lessonId) {
 
   if (!lesson || !lesson.answers || lesson.answers.length === 0) {
     await ctx.reply(
-      `❌ **${lessonId}** bo'limiga javob kalitlari hali kiritilmagan.`
+      `❌ ${lessonId.toUpperCase()} bo'limiga javob kalitlari hali kiritilmagan.`
     );
     return;
   }
@@ -316,23 +351,30 @@ async function startLessonProcess(ctx, lessonId) {
 
 async function sendMyResults(ctx) {
   const userId = ctx.from?.id;
+  const userData = await getUser(userId);
   const allResults = await getResults();
   const userResults = allResults
     .filter((r) => String(r.telegram_id) === String(userId))
     .slice(-10)
     .reverse();
 
+  let msg = `👤 **FOYDALANUVCHI PROFILI**\n`;
+  msg += ` • Ism-Familiya: ${userData?.name || "Noma'lum"}\n`;
+  msg += ` • Sinf: ${userData?.student_class || "Noma'lum"}\n`;
+  msg += ` • ID: ${userId}\n\n`;
+  msg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
   if (userResults.length === 0) {
-    await ctx.reply("📊 Sizda hali saqlangan natijalar yo'q.");
-    return;
+    msg += `📊 Sizda hali saqlangan test natijalari yo'q.`;
+  } else {
+    msg += `📊 **SO'NGGI NATIJALARINGIZ:**\n\n`;
+    userResults.forEach((r, index) => {
+      msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} ball (${
+        r.percentage
+      }%)\n`;
+    });
   }
 
-  let msg = "📊 SO'NGGI NATIJALARINGIZ\n\n";
-  userResults.forEach((r, index) => {
-    msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${
-      r.percentage
-    }%)\n`;
-  });
   await ctx.reply(msg);
 }
 
@@ -397,7 +439,7 @@ bot.command("cancel", async (ctx) => {
 });
 
 // ==========================================
-// ADMIN COMMANDS (STATS 1 - 12)
+// ADMIN COMMANDS
 // ==========================================
 
 bot.command("admin", async (ctx) => {
@@ -411,11 +453,9 @@ bot.command("admin", async (ctx) => {
   }
 
   await ctx.reply(
-    `👨‍🏫 ADMIN PANEL\n\n` +
-      `/stats — Umumiy statistikalar (barchasi)\n` +
-      `/stats1 ... /stats12 — Darslar kesimidagi natijalar\n` +
-      `/students — O'quvchilar kesimidagi natijalar\n` +
-      `/checkkeys — Test kalitlari va sonini ko'rish`
+    `👨‍🏫 **ADMIN PANEL**\n\n` +
+      `Pastdagi maxsus tugmalardan foydalanib, darslar statistikasi va o'quvchilar ro'yxatini ko'rishingiz mumkin:`,
+    { reply_markup: adminReplyKeyboard() }
   );
 });
 
@@ -444,13 +484,13 @@ bot.command("stats", async (ctx) => {
     lessonStats[lesson].totalQuestions += r.total;
   });
 
-  let msg = "📊 TESTLAR BO'YICHA STATISTIKA\n\n";
+  let msg = "📊 TESTLAR BO'YICHA UMUMIY STATISTIKA\n\n";
 
   Object.keys(lessonStats).forEach((lessonTitle) => {
     const stat = lessonStats[lessonTitle];
     const avg = ((stat.totalCorrect / stat.totalQuestions) * 100).toFixed(1);
     msg +=
-      `📘 **${lessonTitle}**\n` +
+      `📘 ${lessonTitle}\n` +
       ` • Topshirildi: ${stat.totalAttempts} marta\n` +
       ` • O'rtacha natija: ${avg}%\n\n`;
   });
@@ -458,7 +498,6 @@ bot.command("stats", async (ctx) => {
   await ctx.reply(msg);
 });
 
-// /stats1 dan /stats12 gacha bo'lgan dinamik komanda
 for (let i = 1; i <= 12; i++) {
   bot.command(`stats${i}`, async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return;
@@ -498,7 +537,7 @@ bot.command("students", async (ctx) => {
   let msg = "👨‍🎓 O'QUVCHILAR NATIJALARI\n\n";
 
   Object.values(studentMap).forEach((st, idx) => {
-    msg += `${idx + 1}. **${st.name}** (${st.studentClass})\n`;
+    msg += `${idx + 1}. ${st.name} (${st.studentClass})\n`;
     st.tests.forEach((t, tIdx) => {
       const isLast = tIdx === st.tests.length - 1;
       const prefix = isLast ? "   └ " : "   ├ ";
@@ -532,6 +571,16 @@ bot.command("checkkeys", async (ctx) => {
 // ==========================================
 
 bot.on("callback_query", async (ctx) => {
+  const userId = ctx.from?.id;
+
+  if (isSpamming(userId)) {
+    await ctx.answerCallbackQuery({
+      text: "⏳ Iltimos, shoshilmang!",
+      show_alert: false,
+    });
+    return;
+  }
+
   const data = ctx.callbackQuery?.data;
 
   if (data === "main_menu") {
@@ -579,7 +628,10 @@ bot.on("message", async (ctx) => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id;
 
-  // 1. PASTKI TUGMALAR (REPLY KEYBOARD) BOSILGANDA (LESSON 1-12)
+  // Anti-Spam Tekshiruvi
+  if (isSpamming(userId)) return;
+
+  // 1. PASTKI TUGMALAR (REPLY KEYBOARD) - ODDIY FOYDALANUVCHILAR
   for (let i = 1; i <= 12; i++) {
     const lessonKey = `lesson${i}`;
     const lessonEmoji = i % 3 === 1 ? "📘" : i % 3 === 2 ? "📗" : "📙";
@@ -603,7 +655,93 @@ bot.on("message", async (ctx) => {
     return;
   }
 
-  // 2. FOYDALANUVCHI SESSIYALARINI QAYTA ISHLASH
+  // 2. PASTKI TUGMALAR (REPLY KEYBOARD) - ADMIN PANEL
+  if (isAdmin(userId)) {
+    for (let i = 1; i <= 12; i++) {
+      if (text === `📊 Stats ${i}`) {
+        const message = await getSingleLessonStats(`lesson${i}`);
+        await ctx.reply(message);
+        return;
+      }
+    }
+    if (text === "📈 Umumiy Stats") {
+      const results = await getResults();
+      if (results.length === 0) {
+        await ctx.reply("📊 Hali natijalar mavjud emas.");
+        return;
+      }
+      const lessonStats = {};
+      results.forEach((r) => {
+        const lesson = r.lesson || r.lesson_id;
+        if (!lessonStats[lesson]) {
+          lessonStats[lesson] = {
+            totalAttempts: 0,
+            totalCorrect: 0,
+            totalQuestions: 0,
+          };
+        }
+        lessonStats[lesson].totalAttempts += 1;
+        lessonStats[lesson].totalCorrect += r.correct;
+        lessonStats[lesson].totalQuestions += r.total;
+      });
+
+      let msg = "📊 TESTLAR BO'YICHA UMUMIY STATISTIKA\n\n";
+      Object.keys(lessonStats).forEach((lessonTitle) => {
+        const stat = lessonStats[lessonTitle];
+        const avg = ((stat.totalCorrect / stat.totalQuestions) * 100).toFixed(
+          1
+        );
+        msg += `📘 ${lessonTitle}\n • Topshirildi: ${stat.totalAttempts} marta\n • O'rtacha natija: ${avg}%\n\n`;
+      });
+      await ctx.reply(msg);
+      return;
+    }
+
+    if (text === "👨‍🎓 O'quvchilar") {
+      const results = await getResults();
+      if (results.length === 0) {
+        await ctx.reply("👨‍🎓 Hali natijalar mavjud emas.");
+        return;
+      }
+      const studentMap = {};
+      results.forEach((r) => {
+        const key = r.telegram_id;
+        if (!studentMap[key]) {
+          studentMap[key] = {
+            name: r.name || "Noma'lum",
+            studentClass: r.student_class || "-",
+            tests: [],
+          };
+        }
+        studentMap[key].tests.push({
+          lesson: r.lesson,
+          correct: r.correct,
+          total: r.total,
+          percentage: r.percentage,
+        });
+      });
+
+      let msg = "👨‍🎓 O'QUVCHILAR NATIJALARI\n\n";
+      Object.values(studentMap).forEach((st, idx) => {
+        msg += `${idx + 1}. ${st.name} (${st.studentClass})\n`;
+        st.tests.forEach((t, tIdx) => {
+          const isLast = tIdx === st.tests.length - 1;
+          const prefix = isLast ? "   └ " : "   ├ ";
+          msg += `${prefix}${t.lesson}: ${t.correct}/${t.total} ball (${t.percentage}%)\n`;
+        });
+        msg += `\n`;
+      });
+      await ctx.reply(msg);
+      return;
+    }
+
+    if (text === "🏠 Asosiy Menyu") {
+      await sendLessonsMenu(ctx);
+      return;
+    }
+  }
+
+  // 3. FOYDALANUVCHI SESSIYALARINI QAYTA ISHLASH
   const session = activeSessions.get(chatId);
 
   if (!session) {
