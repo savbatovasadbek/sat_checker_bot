@@ -1,9 +1,5 @@
 require("dotenv").config();
-const {
-  Bot,
-  InlineKeyboardBuilder,
-  ReplyKeyboardBuilder,
-} = require("node-telegram-bot-api");
+const { Bot, InlineKeyboardBuilder } = require("node-telegram-bot-api");
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
@@ -187,7 +183,7 @@ async function getSingleLessonStats(lessonIdKey) {
 // KEYBOARDS
 // ==========================================
 
-// In-line menyu (xabarga yopishgan tugmalar)
+// Inline Keyboard (Xabar ostidagi tugmalar)
 function mainMenu() {
   return new InlineKeyboardBuilder()
     .text("📘 Lesson 1", "lesson:lesson1")
@@ -201,19 +197,21 @@ function mainMenu() {
     .build();
 }
 
-// Reply Keyboard (Pastda doimiy ko'rinib turadigan tugmalar)
+// Reply Keyboard (Pastda doimiy ko'rinadigan klaviatura)
 function mainReplyKeyboard() {
-  return new ReplyKeyboardBuilder()
-    .text("📘 Lesson 1")
-    .text("📗 Lesson 2")
-    .text("📙 Lesson 3")
-    .row()
-    .text("👤 Profil / O'zgartirish")
-    .text("📊 Natijalarim")
-    .row()
-    .text("❓ Yordam")
-    .resized()
-    .build();
+  return {
+    keyboard: [
+      [
+        { text: "📘 Lesson 1" },
+        { text: "📗 Lesson 2" },
+        { text: "📙 Lesson 3" },
+      ],
+      [{ text: "👤 Profil / O'zgartirish" }, { text: "📊 Natijalarim" }],
+      [{ text: "❓ Yordam" }],
+    ],
+    resize_keyboard: true,
+    persistent: true,
+  };
 }
 
 function postResultKeyboard(lessonId) {
@@ -225,7 +223,7 @@ function postResultKeyboard(lessonId) {
 }
 
 // ==========================================
-// LESSON START HELPER
+// HELPER FUNCTIONS
 // ==========================================
 
 async function startLessonProcess(ctx, lessonId) {
@@ -285,25 +283,11 @@ async function sendMyResults(ctx) {
   await ctx.reply(msg);
 }
 
-// ==========================================
-// COMMANDS
-// ==========================================
-
-bot.command("start", async (ctx) => {
+async function sendLessonsMenu(ctx) {
   const userId = ctx.from?.id;
-  const existingUser = await getUser(userId);
+  const userData = await getUser(userId);
 
-  if (existingUser && existingUser.name && existingUser.student_class) {
-    activeSessions.delete(ctx.chat.id);
-    await ctx.reply(
-      `👋 Xush kelibsiz, ${existingUser.name}! (${existingUser.student_class})\n\n` +
-        `📚 Kerakli test bo'limini tanlang:`,
-      {
-        reply_markup: mainReplyKeyboard(),
-      }
-    );
-    await ctx.reply("Inline Menyudan tanlash:", { reply_markup: mainMenu() });
-  } else {
+  if (!userData || !userData.name || !userData.student_class) {
     activeSessions.set(ctx.chat.id, { step: "registration_name" });
     await ctx.reply(
       `👋 Assalomu alaykum!\n\n` +
@@ -311,13 +295,28 @@ bot.command("start", async (ctx) => {
         `Iltimos, Ism va Familiyangizni kiriting:\n` +
         `(Masalan: Asadbek Savbatov)`
     );
+  } else {
+    activeSessions.delete(ctx.chat.id);
+    await ctx.reply(`📚 Kerakli test bo'limini tanlang:`, {
+      reply_markup: mainReplyKeyboard(),
+    });
+    await ctx.reply("Yoki ushbu tugmalardan foydalaning:", {
+      reply_markup: mainMenu(),
+    });
   }
-});
+}
+
+// ==========================================
+// COMMANDS
+// ==========================================
+
+bot.command("start", sendLessonsMenu);
+bot.command("lessons", sendLessonsMenu);
 
 async function sendHelp(ctx) {
   await ctx.reply(
     `📖 BOTDAN FOYDALANISH YO'RIQNOMASI\n\n` +
-      `1️⃣ **Testni tanlash:** Bosh menyudan kerakli darsni tanlang.\n\n` +
+      `1️⃣ **Testni tanlash:** Bosh menyudan yoki /lessons buyrug'i orqali testni tanlang.\n\n` +
       `2️⃣ **Javob yuborish:** Javoblaringizni botga bitta xabarda, har birini alohida qatorda yuboring.\n\n` +
       `📌 **Qabul qilinadigan formatlar:**\n` +
       ` • Variantlar: A, B, C, D\n` +
@@ -482,7 +481,7 @@ bot.command("checkkeys", async (ctx) => {
 });
 
 // ==========================================
-// CALLBACK QUERIES (INLINE BUTTONS)
+// CALLBACK QUERIES
 // ==========================================
 
 bot.on("callback_query", async (ctx) => {
@@ -491,7 +490,7 @@ bot.on("callback_query", async (ctx) => {
   if (data === "main_menu") {
     activeSessions.delete(ctx.chat.id);
     await ctx.answerCallbackQuery();
-    await ctx.reply("📚 Kerakli testni tanlang:", { reply_markup: mainMenu() });
+    await sendLessonsMenu(ctx);
     return;
   }
 
@@ -523,7 +522,7 @@ bot.on("callback_query", async (ctx) => {
 });
 
 // ==========================================
-// MESSAGE PROCESSING (REPLY BUTTONS & INPUT)
+// MESSAGE PROCESSING
 // ==========================================
 
 bot.on("message", async (ctx) => {
@@ -571,9 +570,7 @@ bot.on("message", async (ctx) => {
         "👋 Assalomu alaykum! Iltimos, Ism va Familiyangizni kiriting:"
       );
     } else {
-      await ctx.reply("📚 Testni tanlang:", {
-        reply_markup: mainReplyKeyboard(),
-      });
+      await sendLessonsMenu(ctx);
     }
     return;
   }
