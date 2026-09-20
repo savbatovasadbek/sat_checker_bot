@@ -1,5 +1,9 @@
 require("dotenv").config();
-const { Bot, InlineKeyboardBuilder } = require("node-telegram-bot-api");
+const {
+  Bot,
+  InlineKeyboardBuilder,
+  ReplyKeyboardBuilder,
+} = require("node-telegram-bot-api");
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
@@ -183,15 +187,32 @@ async function getSingleLessonStats(lessonIdKey) {
 // KEYBOARDS
 // ==========================================
 
+// In-line menyu (xabarga yopishgan tugmalar)
 function mainMenu() {
   return new InlineKeyboardBuilder()
     .text("📘 Lesson 1", "lesson:lesson1")
     .text("📗 Lesson 2", "lesson:lesson2")
+    .text("📙 Lesson 3", "lesson:lesson3")
     .row()
     .text("👤 Profil / O'zgartirish", "profile")
     .text("📊 Natijalarim", "my_results")
     .row()
     .text("❓ Yordam", "help")
+    .build();
+}
+
+// Reply Keyboard (Pastda doimiy ko'rinib turadigan tugmalar)
+function mainReplyKeyboard() {
+  return new ReplyKeyboardBuilder()
+    .text("📘 Lesson 1")
+    .text("📗 Lesson 2")
+    .text("📙 Lesson 3")
+    .row()
+    .text("👤 Profil / O'zgartirish")
+    .text("📊 Natijalarim")
+    .row()
+    .text("❓ Yordam")
+    .resized()
     .build();
 }
 
@@ -201,6 +222,67 @@ function postResultKeyboard(lessonId) {
     .row()
     .text("📚 Boshqa test tanlash", "main_menu")
     .build();
+}
+
+// ==========================================
+// LESSON START HELPER
+// ==========================================
+
+async function startLessonProcess(ctx, lessonId) {
+  const userId = ctx.from?.id;
+  const lesson = answerKeys[lessonId];
+
+  if (!lesson || !lesson.answers) {
+    await ctx.reply("❌ Bu test javob kalitlari hali kiritilmagan.");
+    return;
+  }
+
+  const userData = await getUser(userId);
+  if (!userData || !userData.name || !userData.student_class) {
+    await ctx.reply("⚠️ Avval ro'yxatdan o'ting!");
+    activeSessions.set(ctx.chat.id, { step: "registration_name" });
+    await ctx.reply("Ismingizni kiriting:");
+    return;
+  }
+
+  const expectedCount = lesson.answers.length;
+
+  activeSessions.set(ctx.chat.id, {
+    step: "testing",
+    lessonId: lessonId,
+    lessonTitle: lesson.title,
+    expectedCount: expectedCount,
+  });
+
+  await ctx.reply(
+    `📚 ${lesson.title}\n` +
+      `👤 O'quvchi: ${userData.name} (${userData.student_class})\n\n` +
+      `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
+      `Har bir javobni alohida qatorda yuboring.\n\n` +
+      `❌ Bekor qilish: /cancel`
+  );
+}
+
+async function sendMyResults(ctx) {
+  const userId = ctx.from?.id;
+  const allResults = await getResults();
+  const userResults = allResults
+    .filter((r) => String(r.telegram_id) === String(userId))
+    .slice(-10)
+    .reverse();
+
+  if (userResults.length === 0) {
+    await ctx.reply("📊 Sizda hali saqlangan natijalar yo'q.");
+    return;
+  }
+
+  let msg = "📊 SO'NGGI NATIJALARINGIZ\n\n";
+  userResults.forEach((r, index) => {
+    msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${
+      r.percentage
+    }%)\n`;
+  });
+  await ctx.reply(msg);
 }
 
 // ==========================================
@@ -216,8 +298,11 @@ bot.command("start", async (ctx) => {
     await ctx.reply(
       `👋 Xush kelibsiz, ${existingUser.name}! (${existingUser.student_class})\n\n` +
         `📚 Kerakli test bo'limini tanlang:`,
-      { reply_markup: mainMenu() }
+      {
+        reply_markup: mainReplyKeyboard(),
+      }
     );
+    await ctx.reply("Inline Menyudan tanlash:", { reply_markup: mainMenu() });
   } else {
     activeSessions.set(ctx.chat.id, { step: "registration_name" });
     await ctx.reply(
@@ -252,7 +337,7 @@ bot.command("cancel", async (ctx) => {
   if (activeSessions.has(ctx.chat.id)) {
     activeSessions.delete(ctx.chat.id);
     await ctx.reply("❌ Amal bekor qilindi. Bosh menu:", {
-      reply_markup: mainMenu(),
+      reply_markup: mainReplyKeyboard(),
     });
   } else {
     await ctx.reply("ℹ️ Hozirda faol test seansi yo'q.");
@@ -278,6 +363,7 @@ bot.command("admin", async (ctx) => {
       `/stats — Umumiy statistikalar (barchasi)\n` +
       `/stats1 — Lesson 1 natijalari va o'quvchilar ro'yxati\n` +
       `/stats2 — Lesson 2 natijalari va o'quvchilar ro'yxati\n` +
+      `/stats3 — Lesson 3 natijalari va o'quvchilar ro'yxati\n` +
       `/students — O'quvchilar kesimidagi natijalar\n` +
       `/checkkeys — Test kalitlari va sonini ko'rish`
   );
@@ -331,6 +417,12 @@ bot.command("stats1", async (ctx) => {
 bot.command("stats2", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
   const message = await getSingleLessonStats("lesson2");
+  await ctx.reply(message);
+});
+
+bot.command("stats3", async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return;
+  const message = await getSingleLessonStats("lesson3");
   await ctx.reply(message);
 });
 
@@ -390,12 +482,11 @@ bot.command("checkkeys", async (ctx) => {
 });
 
 // ==========================================
-// CALLBACK QUERIES
+// CALLBACK QUERIES (INLINE BUTTONS)
 // ==========================================
 
 bot.on("callback_query", async (ctx) => {
   const data = ctx.callbackQuery?.data;
-  const userId = ctx.from?.id;
 
   if (data === "main_menu") {
     activeSessions.delete(ctx.chat.id);
@@ -413,68 +504,14 @@ bot.on("callback_query", async (ctx) => {
 
   if (data?.startsWith("lesson:")) {
     const lessonId = data.split(":")[1];
-    const lesson = answerKeys[lessonId];
-
-    if (!lesson || !lesson.answers) {
-      await ctx.answerCallbackQuery({
-        text: "❌ Bu test javob kalitlari hali kiritilmagan.",
-        show_alert: true,
-      });
-      return;
-    }
-
-    const userData = await getUser(userId);
-    if (!userData || !userData.name || !userData.student_class) {
-      await ctx.answerCallbackQuery({
-        text: "⚠️ Avval ro'yxatdan o'ting!",
-        show_alert: true,
-      });
-      activeSessions.set(ctx.chat.id, { step: "registration_name" });
-      await ctx.reply("Ismingizni kiriting:");
-      return;
-    }
-
-    const expectedCount = lesson.answers.length;
-
-    activeSessions.set(ctx.chat.id, {
-      step: "testing",
-      lessonId: lessonId,
-      lessonTitle: lesson.title,
-      expectedCount: expectedCount,
-    });
-
     await ctx.answerCallbackQuery();
-
-    await ctx.reply(
-      `📚 ${lesson.title}\n` +
-        `👤 O'quvchi: ${userData.name} (${userData.student_class})\n\n` +
-        `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
-        `Har bir javobni alohida qatorda yuboring.\n\n` +
-        `❌ Bekor qilish: /cancel`
-    );
+    await startLessonProcess(ctx, lessonId);
     return;
   }
 
   if (data === "my_results") {
     await ctx.answerCallbackQuery();
-    const allResults = await getResults();
-    const userResults = allResults
-      .filter((r) => String(r.telegram_id) === String(userId))
-      .slice(-10)
-      .reverse();
-
-    if (userResults.length === 0) {
-      await ctx.reply("📊 Sizda hali saqlangan natijalar yo'q.");
-      return;
-    }
-
-    let msg = "📊 SO'NGGI NATIJALARINGIZ\n\n";
-    userResults.forEach((r, index) => {
-      msg += `${index + 1}. ${r.lesson} — ${r.correct}/${r.total} (${
-        r.percentage
-      }%)\n`;
-    });
-    await ctx.reply(msg);
+    await sendMyResults(ctx);
     return;
   }
 
@@ -486,7 +523,7 @@ bot.on("callback_query", async (ctx) => {
 });
 
 // ==========================================
-// MESSAGE PROCESSING
+// MESSAGE PROCESSING (REPLY BUTTONS & INPUT)
 // ==========================================
 
 bot.on("message", async (ctx) => {
@@ -495,6 +532,35 @@ bot.on("message", async (ctx) => {
 
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id;
+
+  // 1. PASTKI TUGMALAR (REPLY KEYBOARD) BOSILGANDA
+  if (text === "📘 Lesson 1") {
+    await startLessonProcess(ctx, "lesson1");
+    return;
+  }
+  if (text === "📗 Lesson 2") {
+    await startLessonProcess(ctx, "lesson2");
+    return;
+  }
+  if (text === "📙 Lesson 3") {
+    await startLessonProcess(ctx, "lesson3");
+    return;
+  }
+  if (text === "👤 Profil / O'zgartirish") {
+    activeSessions.set(chatId, { step: "registration_name" });
+    await ctx.reply("📝 Qaytadan Ism va Familiyangizni kiriting:");
+    return;
+  }
+  if (text === "📊 Natijalarim") {
+    await sendMyResults(ctx);
+    return;
+  }
+  if (text === "❓ Yordam") {
+    await sendHelp(ctx);
+    return;
+  }
+
+  // 2. FOYDALANUVCHI SESSIYALARINI QAYTA ISHLASH
   const session = activeSessions.get(chatId);
 
   if (!session) {
@@ -505,7 +571,9 @@ bot.on("message", async (ctx) => {
         "👋 Assalomu alaykum! Iltimos, Ism va Familiyangizni kiriting:"
       );
     } else {
-      await ctx.reply("📚 Testni tanlang:", { reply_markup: mainMenu() });
+      await ctx.reply("📚 Testni tanlang:", {
+        reply_markup: mainReplyKeyboard(),
+      });
     }
     return;
   }
@@ -531,7 +599,7 @@ bot.on("message", async (ctx) => {
         `👤 Ism: ${name}\n` +
         `🏫 Sinf: ${studentClass}\n\n` +
         `📚 Kerakli testni tanlang:`,
-      { reply_markup: mainMenu() }
+      { reply_markup: mainReplyKeyboard() }
     );
     return;
   }
@@ -641,7 +709,7 @@ bot
   .catch((err) => console.error("❌ Polling xatosi:", err));
 
 // ==========================================
-// RENDER WEB SERVER & KEEP-ALIVE PING (SINGLE INSTANCE)
+// RENDER WEB SERVER & KEEP-ALIVE PING
 // ==========================================
 
 const PORT = process.env.PORT || 10000;
@@ -666,5 +734,5 @@ if (RENDER_EXTERNAL_URL) {
       .on("error", (err) => {
         console.error("⚠️ Keep-alive pingda xato:", err.message);
       });
-  }, 10 * 60 * 1000); // Har 10 daqiqada 1 marta ping
+  }, 10 * 60 * 1000);
 }
