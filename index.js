@@ -73,11 +73,11 @@ console.log("=================================");
 const activeSessions = new Map();
 
 // ==========================================
-// ANTI-SPAM / RATE LIMITER SYSTEM (QOTISHGA QARSHI HIMOYA)
+// ANTI-SPAM / RATE LIMITER SYSTEM
 // ==========================================
 
 const userLastAction = new Map();
-const COOLDOWN_MS = 1000; // 1 soniya oralig'ida so'rov yuborish mumkin
+const COOLDOWN_MS = 1000;
 
 function isSpamming(userId) {
   const now = Date.now();
@@ -239,6 +239,7 @@ function mainMenu() {
     .text("👤 Profil / O'zgartirish", "profile")
     .text("📊 Natijalarim", "my_results")
     .row()
+    .text("🏠 Asosiy Menyu", "main_menu")
     .text("❓ Yordam", "help")
     .build();
 }
@@ -267,7 +268,7 @@ function mainReplyKeyboard() {
         { text: "📙 Lesson 12" },
       ],
       [{ text: "👤 Profil / O'zgartirish" }, { text: "📊 Natijalarim" }],
-      [{ text: "❓ Yordam" }],
+      [{ text: "🏠 Asosiy Menyu" }, { text: "❓ Yordam" }],
     ],
     resize_keyboard: true,
     persistent: true,
@@ -650,6 +651,10 @@ bot.on("message", async (ctx) => {
     await sendMyResults(ctx);
     return;
   }
+  if (text === "🏠 Asosiy Menyu") {
+    await sendLessonsMenu(ctx);
+    return;
+  }
   if (text === "❓ Yordam") {
     await sendHelp(ctx);
     return;
@@ -732,11 +737,6 @@ bot.on("message", async (ctx) => {
         msg += `\n`;
       });
       await ctx.reply(msg);
-      return;
-    }
-
-    if (text === "🏠 Asosiy Menyu") {
-      await sendLessonsMenu(ctx);
       return;
     }
   }
