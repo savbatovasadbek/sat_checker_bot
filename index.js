@@ -73,6 +73,25 @@ console.log("=================================");
 const activeSessions = new Map();
 
 // ==========================================
+// TELEGRAM BOT MENU COMMANDS REGISTRATION
+// ==========================================
+
+// Menu tugmasida ko'rinadigan komandalar ro'yxati
+bot.api
+  .setMyCommands([
+    { command: "start", description: "Botni ishga tushirish va bosh menu" },
+    { command: "lessons", description: "Mavjud testlar ro'yxatini ko'rish" },
+    { command: "help", description: "Yordam va yo'riqnoma" },
+    { command: "admin", description: "Admin panel (Faqat adminlar uchun)" },
+  ])
+  .then(() => {
+    console.log("✅ Telegram Menu buyruqlari muvaffaqiyatli o'rnatildi!");
+  })
+  .catch((err) => {
+    console.error("❌ Menu buyruqlarini o'rnatishda xato:", err.message);
+  });
+
+// ==========================================
 // SUPABASE DATABASE HELPERS
 // ==========================================
 
@@ -183,7 +202,6 @@ async function getSingleLessonStats(lessonIdKey) {
 // KEYBOARDS
 // ==========================================
 
-// Inline Keyboard (Xabar ostidagi tugmalar)
 function mainMenu() {
   return new InlineKeyboardBuilder()
     .text("📘 Lesson 1", "lesson:lesson1")
@@ -197,7 +215,6 @@ function mainMenu() {
     .build();
 }
 
-// Reply Keyboard (Pastda doimiy ko'rinadigan klaviatura)
 function mainReplyKeyboard() {
   return {
     keyboard: [
