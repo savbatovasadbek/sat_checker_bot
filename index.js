@@ -76,7 +76,6 @@ const activeSessions = new Map();
 // TELEGRAM BOT MENU COMMANDS REGISTRATION
 // ==========================================
 
-// Menu tugmasida ko'rinadigan komandalar ro'yxati
 bot.api
   .setMyCommands([
     { command: "start", description: "Botni ishga tushirish va bosh menu" },
@@ -199,7 +198,7 @@ async function getSingleLessonStats(lessonIdKey) {
 }
 
 // ==========================================
-// KEYBOARDS
+// KEYBOARDS (LESSON 1 - 12)
 // ==========================================
 
 function mainMenu() {
@@ -207,6 +206,18 @@ function mainMenu() {
     .text("📘 Lesson 1", "lesson:lesson1")
     .text("📗 Lesson 2", "lesson:lesson2")
     .text("📙 Lesson 3", "lesson:lesson3")
+    .row()
+    .text("📘 Lesson 4", "lesson:lesson4")
+    .text("📗 Lesson 5", "lesson:lesson5")
+    .text("📙 Lesson 6", "lesson:lesson6")
+    .row()
+    .text("📘 Lesson 7", "lesson:lesson7")
+    .text("📗 Lesson 8", "lesson:lesson8")
+    .text("📙 Lesson 9", "lesson:lesson9")
+    .row()
+    .text("📘 Lesson 10", "lesson:lesson10")
+    .text("📗 Lesson 11", "lesson:lesson11")
+    .text("📙 Lesson 12", "lesson:lesson12")
     .row()
     .text("👤 Profil / O'zgartirish", "profile")
     .text("📊 Natijalarim", "my_results")
@@ -222,6 +233,21 @@ function mainReplyKeyboard() {
         { text: "📘 Lesson 1" },
         { text: "📗 Lesson 2" },
         { text: "📙 Lesson 3" },
+      ],
+      [
+        { text: "📘 Lesson 4" },
+        { text: "📗 Lesson 5" },
+        { text: "📙 Lesson 6" },
+      ],
+      [
+        { text: "📘 Lesson 7" },
+        { text: "📗 Lesson 8" },
+        { text: "📙 Lesson 9" },
+      ],
+      [
+        { text: "📘 Lesson 10" },
+        { text: "📗 Lesson 11" },
+        { text: "📙 Lesson 12" },
       ],
       [{ text: "👤 Profil / O'zgartirish" }, { text: "📊 Natijalarim" }],
       [{ text: "❓ Yordam" }],
@@ -245,10 +271,20 @@ function postResultKeyboard(lessonId) {
 
 async function startLessonProcess(ctx, lessonId) {
   const userId = ctx.from?.id;
+
+  // Faylni doimiy yangi holatda o'qish (kalitlar o'zgarganda botni qayta yoqmaslik uchun)
+  try {
+    answerKeys = JSON.parse(fs.readFileSync(KEYS_PATH, "utf8"));
+  } catch (err) {
+    console.error("Answer keys qayta o'qishda xato:", err);
+  }
+
   const lesson = answerKeys[lessonId];
 
-  if (!lesson || !lesson.answers) {
-    await ctx.reply("❌ Bu test javob kalitlari hali kiritilmagan.");
+  if (!lesson || !lesson.answers || lesson.answers.length === 0) {
+    await ctx.reply(
+      `❌ **${lessonId}** bo'limiga javob kalitlari hali kiritilmagan.`
+    );
     return;
   }
 
@@ -265,12 +301,12 @@ async function startLessonProcess(ctx, lessonId) {
   activeSessions.set(ctx.chat.id, {
     step: "testing",
     lessonId: lessonId,
-    lessonTitle: lesson.title,
+    lessonTitle: lesson.title || lessonId,
     expectedCount: expectedCount,
   });
 
   await ctx.reply(
-    `📚 ${lesson.title}\n` +
+    `📚 ${lesson.title || lessonId}\n` +
       `👤 O'quvchi: ${userData.name} (${userData.student_class})\n\n` +
       `📝 Siz ${expectedCount} ta javob yuborishingiz kerak.\n` +
       `Har bir javobni alohida qatorda yuboring.\n\n` +
@@ -314,7 +350,7 @@ async function sendLessonsMenu(ctx) {
     );
   } else {
     activeSessions.delete(ctx.chat.id);
-    await ctx.reply(`📚 Kerakli test bo'limini tanlang:`, {
+    await ctx.reply(`📚 Kerakli test bo'limini tanlang (Lesson 1 — 12):`, {
       reply_markup: mainReplyKeyboard(),
     });
     await ctx.reply("Yoki ushbu tugmalardan foydalaning:", {
@@ -333,7 +369,7 @@ bot.command("lessons", sendLessonsMenu);
 async function sendHelp(ctx) {
   await ctx.reply(
     `📖 BOTDAN FOYDALANISH YO'RIQNOMASI\n\n` +
-      `1️⃣ **Testni tanlash:** Bosh menyudan yoki /lessons buyrug'i orqali testni tanlang.\n\n` +
+      `1️⃣ **Testni tanlash:** Bosh menyudan kerakli darsni (Lesson 1-12) tanlang.\n\n` +
       `2️⃣ **Javob yuborish:** Javoblaringizni botga bitta xabarda, har birini alohida qatorda yuboring.\n\n` +
       `📌 **Qabul qilinadigan formatlar:**\n` +
       ` • Variantlar: A, B, C, D\n` +
@@ -361,7 +397,7 @@ bot.command("cancel", async (ctx) => {
 });
 
 // ==========================================
-// ADMIN COMMANDS
+// ADMIN COMMANDS (STATS 1 - 12)
 // ==========================================
 
 bot.command("admin", async (ctx) => {
@@ -377,9 +413,7 @@ bot.command("admin", async (ctx) => {
   await ctx.reply(
     `👨‍🏫 ADMIN PANEL\n\n` +
       `/stats — Umumiy statistikalar (barchasi)\n` +
-      `/stats1 — Lesson 1 natijalari va o'quvchilar ro'yxati\n` +
-      `/stats2 — Lesson 2 natijalari va o'quvchilar ro'yxati\n` +
-      `/stats3 — Lesson 3 natijalari va o'quvchilar ro'yxati\n` +
+      `/stats1 ... /stats12 — Darslar kesimidagi natijalar\n` +
       `/students — O'quvchilar kesimidagi natijalar\n` +
       `/checkkeys — Test kalitlari va sonini ko'rish`
   );
@@ -424,23 +458,14 @@ bot.command("stats", async (ctx) => {
   await ctx.reply(msg);
 });
 
-bot.command("stats1", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) return;
-  const message = await getSingleLessonStats("lesson1");
-  await ctx.reply(message);
-});
-
-bot.command("stats2", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) return;
-  const message = await getSingleLessonStats("lesson2");
-  await ctx.reply(message);
-});
-
-bot.command("stats3", async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) return;
-  const message = await getSingleLessonStats("lesson3");
-  await ctx.reply(message);
-});
+// /stats1 dan /stats12 gacha bo'lgan dinamik komanda
+for (let i = 1; i <= 12; i++) {
+  bot.command(`stats${i}`, async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return;
+    const message = await getSingleLessonStats(`lesson${i}`);
+    await ctx.reply(message);
+  });
+}
 
 bot.command("students", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
@@ -487,10 +512,15 @@ bot.command("students", async (ctx) => {
 
 bot.command("checkkeys", async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
+
+  try {
+    answerKeys = JSON.parse(fs.readFileSync(KEYS_PATH, "utf8"));
+  } catch (e) {}
+
   let msg = "🔍 MAVJUD TEST KALITLARI:\n\n";
   Object.keys(answerKeys).forEach((key) => {
     const lesson = answerKeys[key];
-    msg += `• ${key}: ${lesson.title} (${
+    msg += `• ${key}: ${lesson.title || key} (${
       lesson.answers?.length || 0
     } ta kalit)\n`;
   });
@@ -549,19 +579,16 @@ bot.on("message", async (ctx) => {
   const chatId = ctx.chat.id;
   const userId = ctx.from?.id;
 
-  // 1. PASTKI TUGMALAR (REPLY KEYBOARD) BOSILGANDA
-  if (text === "📘 Lesson 1") {
-    await startLessonProcess(ctx, "lesson1");
-    return;
+  // 1. PASTKI TUGMALAR (REPLY KEYBOARD) BOSILGANDA (LESSON 1-12)
+  for (let i = 1; i <= 12; i++) {
+    const lessonKey = `lesson${i}`;
+    const lessonEmoji = i % 3 === 1 ? "📘" : i % 3 === 2 ? "📗" : "📙";
+    if (text === `${lessonEmoji} Lesson ${i}` || text === `Lesson ${i}`) {
+      await startLessonProcess(ctx, lessonKey);
+      return;
+    }
   }
-  if (text === "📗 Lesson 2") {
-    await startLessonProcess(ctx, "lesson2");
-    return;
-  }
-  if (text === "📙 Lesson 3") {
-    await startLessonProcess(ctx, "lesson3");
-    return;
-  }
+
   if (text === "👤 Profil / O'zgartirish") {
     activeSessions.set(chatId, { step: "registration_name" });
     await ctx.reply("📝 Qaytadan Ism va Familiyangizni kiriting:");
@@ -637,6 +664,10 @@ bot.on("message", async (ctx) => {
       );
       return;
     }
+
+    try {
+      answerKeys = JSON.parse(fs.readFileSync(KEYS_PATH, "utf8"));
+    } catch (e) {}
 
     const key = answerKeys[session.lessonId]?.answers || [];
     const results = [];
